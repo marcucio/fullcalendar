@@ -86,7 +86,7 @@ var defaults = {
 		nextYear: 'seek-next'
 	},
 
-	dragOpacity: .75,
+	dragOpacity: 0.75,
 	dragRevertDuration: 500,
 	dragScroll: true,
 	
@@ -103,7 +103,7 @@ var defaults = {
 	handleWindowResize: true,
 	windowResizeDelay: 200, // milliseconds before a rerender happens
 
-	listInterval: {days: 7 }
+	listInterval: { days: 7 }
 };
 
 

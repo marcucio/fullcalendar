@@ -189,8 +189,9 @@ function Header(calendar, options) {
 	function updateTitle(text) {
 		el.find('h2').text(text);
 
-		if(options['updateTitle'])
-			options['updateTitle'](text);
+		if (options.updateTitle) {
+			options.updateTitle(text);
+		}
 	}
 	
 	

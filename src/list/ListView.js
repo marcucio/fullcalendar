@@ -23,8 +23,6 @@ $.extend(ListView.prototype, {
 
     render: function(date) {
 
-        //console.log('Render from: ' + date.format("YYYY MM DD HH:mm:ss Z"));
-
         this.intervalStart = date.clone().stripTime();
         this.intervalEnd = this.intervalStart.clone().add(this.calendar.options.listInterval);
 
@@ -48,10 +46,6 @@ $.extend(ListView.prototype, {
     },
 
     renderEvents: function renderListEvents(events) {
-
-        var noDebug = true;
-        noDebug || console.log(events);
-
         var eventsCopy = events.slice().reverse(); //copy and reverse so we can modify while looping
 
         var tbody = $('<tbody></tbody>');
@@ -65,15 +59,11 @@ $.extend(ListView.prototype, {
 
         var periodEnd = this.end.clone(); //clone so as to not accidentally modify
 
-        noDebug || console.log('Period start: ' + this.start.format("YYYY MM DD HH:mm:ss Z") + ', and end: ' + this.end.format("YYYY MM DD HH:mm:ss Z"));
-
         var currentDayStart = this.start.clone();
         while (currentDayStart.isBefore(periodEnd)) {
 
             var didAddDayHeader = false;
             var currentDayEnd = currentDayStart.clone().add(1, 'days');
-
-            noDebug || console.log('=== this day start: ' + currentDayStart.format("YYYY MM DD HH:mm:ss Z") + ', and end: ' + currentDayEnd.format("YYYY MM DD HH:mm:ss Z"));
 
             //Assume events were ordered descending originally (notice we reversed them)
             for (var i = eventsCopy.length - 1; i >= 0; --i) {
@@ -82,44 +72,31 @@ $.extend(ListView.prototype, {
                 var eventStart = e.start.clone();
                 var eventEnd = this.calendar.getEventEnd(e);
 
-                if (!noDebug) {
-                    console.log(e.title);
-                    console.log('event index: ' + (events.length - i - 1) + ', and in copy: ' + i);
-                    console.log('event start: ' + eventStart.format("YYYY MM DD HH:mm:ss Z"));
-                    console.log('event end: ' + this.calendar.getEventEnd(e).format("YYYY MM DD HH:mm:ss Z"));
-                    console.log('currentDayEnd: ' + currentDayEnd.format("YYYY MM DD HH:mm:ss Z"));
-                    console.log(currentDayEnd.isAfter(eventStart));
-                }
-
                 if (currentDayStart.isAfter(eventEnd) || (currentDayStart.isSame(eventEnd) && !eventStart.isSame(eventEnd)) || periodEnd.isBefore(eventStart)) {
                     eventsCopy.splice(i, 1);
-                    noDebug || console.log("--- Removed the above event");
                 } else if (currentDayEnd.isAfter(eventStart)) {
                     //We found an event to display
-
-                    noDebug || console.log("+++ We added the above event");
-
                     if (!didAddDayHeader) {
-                        tbody.append('\
-                                <tr>\
-                                    <th colspan="4">\
-                                        <span class="fc-header-day">' + this.calendar.formatDate(currentDayStart, 'dddd') + '</span>\
-                                        <span class="fc-header-date">' + this.calendar.formatDate(currentDayStart, this.opt('columnFormat')) + '</span>\
-                                    </th>\
-                                </tr>');
+                        tbody.append(''+
+                                '<tr>'+
+                                    '<th colspan="4">'+
+                                        '<span class="fc-header-day">' + this.calendar.formatDate(currentDayStart, 'dddd') + '</span>'+
+                                        '<span class="fc-header-date">' + this.calendar.formatDate(currentDayStart, this.opt('columnFormat')) + '</span>'+
+                                    '</th>'+
+                                '</tr>');
 
                         didAddDayHeader = true;
                     }
 
-                    var segEl = $('\
-                        <tr class="fc-row fc-event-container fc-content">\
-                            <td class="fc-event-handle">\
-                                <span class="fc-event"></span>\
-                            </td>\
-                            <td class="fc-time">' + (e.allDay ? this.opt('allDayText') : this.getEventTimeText(e)) + '</td>\
-                            <td class="fc-title">' + e.title + '</td>\
-                            <td class="fc-location">' + e.location || '' + '</td>\
-                        </tr>');
+                    var segEl = $(''+
+                        '<tr class="fc-row fc-event-container fc-content">'+
+                            '<td class="fc-event-handle">'+
+                                '<span class="fc-event"></span>'+
+                            '</td>'+
+                            '<td class="fc-time">' + (e.allDay ? this.opt('allDayText') : this.getEventTimeText(e)) + '</td>'+
+                            '<td class="fc-title">' + e.title + '</td>'+
+                            '<td class="fc-location">' + e.location || '' + '</td>'+
+                        '</tr>');
                     tbody.append(segEl);
 
                     //Tried to use fullcalendar code for this stuff but to no avail
@@ -128,7 +105,6 @@ $.extend(ListView.prototype, {
                             return _this.trigger('eventClick', mySegEl, myEvent, ev);
                         });
                     })(this, e, segEl);
-
                 }
 
             }
