@@ -2,22 +2,17 @@
 /* A month view with day cells running in rows (one-per-week) and columns
 ----------------------------------------------------------------------------------------------------------------------*/
 
-setDefaults({
-	fixedWeekCount: true
-});
-
-var MonthView = fcViews.month = BasicView.extend({
+var MonthView = BasicView.extend({
 
 	// Produces information about what range to display
 	computeRange: function(date) {
 		var range = BasicView.prototype.computeRange.call(this, date); // get value from super-method
+		var rowCnt;
 
+		// ensure 6 weeks
 		if (this.isFixedWeeks()) {
-			// ensure 6 weeks
-			range.end.add(
-				6 - range.end.diff(range.start, 'weeks'),
-				'weeks'
-			);
+			rowCnt = Math.ceil(range.end.diff(range.start, 'weeks', true)); // could be partial weeks due to hiddenDays
+			range.end.add(6 - rowCnt, 'weeks');
 		}
 
 		return range;
@@ -48,5 +43,3 @@ var MonthView = fcViews.month = BasicView.extend({
 	}
 
 });
-
-MonthView.duration = { months: 1 };

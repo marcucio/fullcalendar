@@ -26,6 +26,7 @@ Class.extend = function(members) {
 
 	// copy each member variable/method onto the the subclass's prototype
 	copyOwnProps(members, subClass.prototype);
+	copyNativeMethods(members, subClass.prototype); // hack for IE8
 
 	// copy over all class variables/methods to the subclass, such as `extend` and `mixin`
 	copyOwnProps(superClass, subClass);
@@ -36,5 +37,5 @@ Class.extend = function(members) {
 // adds new member variables/methods to the class's prototype.
 // can be called with another class, or a plain object hash containing new members.
 Class.mixin = function(members) {
-	copyOwnProps(members.prototype || members, this.prototype);
+	copyOwnProps(members.prototype || members, this.prototype); // TODO: copyNativeMethods?
 };

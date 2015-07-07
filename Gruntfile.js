@@ -33,7 +33,7 @@ module.exports = function(grunt) {
 	};
 
 	// for the "meta" template variable (<%= meta.whatever %>)
-	config.meta = grunt.file.readJSON('fullcalendar.jquery.json');
+	config.meta = grunt.file.readJSON('package.json');
 
 	// The "grunt" command with no arguments
 	grunt.registerTask('default', 'dist');
@@ -53,8 +53,7 @@ module.exports = function(grunt) {
 		'modules',
 		'languages',
 		'karma:single',
-		'archiveDist',
-		'cdnjsDist'
+		'archiveDist'
 	]);
 
 	// Bare minimum for debugging
@@ -314,8 +313,7 @@ module.exports = function(grunt) {
 		options: {
 			files: [
 				'package.json',
-				'bower.json',
-				'fullcalendar.jquery.json'
+				'bower.json'
 			],
 			commit: false,
 			createTag: false,
@@ -329,6 +327,7 @@ module.exports = function(grunt) {
 	----------------------------------------------------------------------------------------------------*/
 
 	grunt.registerTask('cdnjs', 'Build files for CDNJS\'s hosted version of FullCalendar', [
+		'clean:cdnjs',
 		'modules',
 		'languages',
 		'karma:single',
@@ -336,7 +335,6 @@ module.exports = function(grunt) {
 	]);
 
 	grunt.registerTask('cdnjsDist', [
-		'clean:cdnjs',
 		'copy:cdnjsModules',
 		'copy:cdnjsLanguages',
 		'copy:cdnjsLanguagesAll',
@@ -363,19 +361,27 @@ module.exports = function(grunt) {
 	};
 
 	grunt.registerTask('cdnjsConfig', function() {
-		var jqueryConfig = grunt.file.readJSON('fullcalendar.jquery.json');
-		var cdnjsConfig = grunt.file.readJSON('build/cdnjs.json');
+		var config = grunt.file.readJSON('package.json');
+
+		// things that CDNJS doesn't need
+		delete config.devDependencies;
+		delete config.main;
+		delete config.files;
+		delete config.ignore;
+
+		_.extend(config, grunt.file.readJSON('build/cdnjs.json')); // CDNJS-specific settings
+
 		grunt.file.write(
 			'dist/cdnjs/package.json',
 			JSON.stringify(
-				_.extend({}, jqueryConfig, cdnjsConfig), // combine 2 configs
+				config,
 				null, // replace
 				2 // indent
 			)
 		);
 	});
 
-	config.clean.cdnjs = 'dist/cdnjs';
+	//config.clean.cdnjs = 'dist/cdnjs';
 
 
 

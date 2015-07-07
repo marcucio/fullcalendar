@@ -6,10 +6,9 @@ var TimeGrid = Grid.extend({
 
 	slotDuration: null, // duration of a "slot", a distinct time segment on given day, visualized by lines
 	snapDuration: null, // granularity of time for dragging and selecting
-
 	minTime: null, // Duration object that denotes the first visible time of any given day
 	maxTime: null, // Duration object that denotes the exclusive visible end time of any given day
-
+	colDates: null, // whole-day dates for each column. left to right
 	axisFormat: null, // formatting string for times running along vertical axis
 
 	dayEls: null, // cells elements in the day-row background
@@ -30,14 +29,10 @@ var TimeGrid = Grid.extend({
 
 	// Renders the time grid into `this.el`, which should already be assigned.
 	// Relies on the view's colCnt. In the future, this component should probably be self-sufficient.
-	render: function() {
+	renderDates: function() {
 		this.el.html(this.renderHtml());
 		this.dayEls = this.el.find('.fc-day');
 		this.slatEls = this.el.find('.fc-slats tr');
-
-		this.computeSlatTops();
-		this.renderBusinessHours();
-		Grid.prototype.render.call(this); // call the super-method
 	},
 
 
@@ -125,6 +120,7 @@ var TimeGrid = Grid.extend({
 
 		this.slotDuration = slotDuration;
 		this.snapDuration = snapDuration;
+		this.cellDuration = snapDuration; // for Grid system
 
 		this.minTime = moment.duration(view.opt('minTime'));
 		this.maxTime = moment.duration(view.opt('maxTime'));
@@ -160,38 +156,37 @@ var TimeGrid = Grid.extend({
 	------------------------------------------------------------------------------------------------------------------*/
 
 
-	// Initializes row/col information
-	updateCells: function() {
+	rangeUpdated: function() {
 		var view = this.view;
-		var colData = [];
+		var colDates = [];
 		var date;
 
 		date = this.start.clone();
 		while (date.isBefore(this.end)) {
-			colData.push({
-				day: date.clone()
-			});
+			colDates.push(date.clone());
 			date.add(1, 'day');
 			date = view.skipHiddenDays(date);
 		}
 
 		if (this.isRTL) {
-			colData.reverse();
+			colDates.reverse();
 		}
 
-		this.colData = colData;
-		this.colCnt = colData.length;
+		this.colDates = colDates;
+		this.colCnt = colDates.length;
 		this.rowCnt = Math.ceil((this.maxTime - this.minTime) / this.snapDuration); // # of vertical snaps
 	},
 
 
-	// Given a cell object, generates a range object
-	computeCellRange: function(cell) {
+	// Given a cell object, generates its start date. Returns a reference-free copy.
+	computeCellDate: function(cell) {
+		var date = this.colDates[cell.col];
 		var time = this.computeSnapTime(cell.row);
-		var start = this.view.calendar.rezoneDate(cell.day).time(time);
-		var end = start.clone().add(this.snapDuration);
 
-		return { start: start, end: end };
+		date = this.view.calendar.rezoneDate(date); // give it a 00:00 time
+		date.time(time);
+
+		return date;
 	},
 
 
@@ -227,7 +222,7 @@ var TimeGrid = Grid.extend({
 		};
 
 		for (col = 0; col < colCnt; col++) {
-			colDate = this.colData[col].day; // will be ambig time/timezone
+			colDate = this.colDates[col]; // will be ambig time/timezone
 			colRange = {
 				start: colDate.clone().time(this.minTime),
 				end: colDate.clone().time(this.maxTime)
@@ -247,10 +242,12 @@ var TimeGrid = Grid.extend({
 	------------------------------------------------------------------------------------------------------------------*/
 
 
-	// Called when there is a window resize/zoom and we need to recalculate coordinates for the grid
-	resize: function() {
+	updateSize: function(isResize) { // NOT a standard Grid method
 		this.computeSlatTops();
-		this.updateSegVerticals();
+
+		if (isResize) {
+			this.updateSegVerticals();
+		}
 	},
 
 
@@ -338,31 +335,24 @@ var TimeGrid = Grid.extend({
 	// dropLocation's end might be null, as well as `seg`. See Grid::renderDrag for more info.
 	// A returned value of `true` signals that a mock "helper" event has been rendered.
 	renderDrag: function(dropLocation, seg) {
-		var opacity;
 
 		if (seg) { // if there is event information for this drag, render a helper event
 			this.renderRangeHelper(dropLocation, seg);
-
-			opacity = this.view.opt('dragOpacity');
-			if (opacity !== undefined) {
-				this.helperEl.css('opacity', opacity);
-			}
+			this.applyDragOpacity(this.helperEl);
 
 			return true; // signal that a helper has been rendered
 		}
 		else {
 			// otherwise, just render a highlight
-			this.renderHighlight(
-				this.view.calendar.ensureVisibleEventRange(dropLocation) // needs to be a proper range
-			);
+			this.renderHighlight(this.eventRangeToSegs(dropLocation));
 		}
 	},
 
 
 	// Unrenders any visual indication of an event being dragged
-	destroyDrag: function() {
-		this.destroyHelper();
-		this.destroyHighlight();
+	unrenderDrag: function() {
+		this.unrenderHelper();
+		this.unrenderHighlight();
 	},
 
 
@@ -377,8 +367,8 @@ var TimeGrid = Grid.extend({
 
 
 	// Unrenders any visual indication of an event being resized
-	destroyEventResize: function() {
-		this.destroyHelper();
+	unrenderEventResize: function() {
+		this.unrenderHelper();
 	},
 
 
@@ -417,7 +407,7 @@ var TimeGrid = Grid.extend({
 
 
 	// Unrenders any mock helper event
-	destroyHelper: function() {
+	unrenderHelper: function() {
 		if (this.helperEl) {
 			this.helperEl.remove();
 			this.helperEl = null;
@@ -435,15 +425,15 @@ var TimeGrid = Grid.extend({
 			this.renderRangeHelper(range);
 		}
 		else {
-			this.renderHighlight(range);
+			this.renderHighlight(this.selectionRangeToSegs(range));
 		}
 	},
 
 
 	// Unrenders any visual indication of a selection
-	destroySelection: function() {
-		this.destroyHelper();
-		this.destroyHighlight();
+	unrenderSelection: function() {
+		this.unrenderHelper();
+		this.unrenderHighlight();
 	},
 
 
@@ -482,7 +472,7 @@ var TimeGrid = Grid.extend({
 
 				if (colSegs.length) {
 					containerEl = $('<div class="fc-' + className + '-container"/>').appendTo(tdEl);
-					dayDate = this.colData[col].day;
+					dayDate = this.colDates[col];
 
 					for (i = 0; i < colSegs.length; i++) {
 						seg = colSegs[i];

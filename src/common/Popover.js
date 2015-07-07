@@ -72,7 +72,7 @@ var Popover = Class.extend({
 		});
 
 		if (options.autoHide) {
-			$(document).on(getMouseDownEvent(), this.documentMousedownProxy = $.proxy(this, 'documentMousedown'));
+			$(document).on(getMouseDownEvent(), this.documentMousedownProxy = proxy(this, 'documentMousedown'));
 		}
 	},
 
@@ -88,7 +88,7 @@ var Popover = Class.extend({
 
 
 	// Hides and unregisters any handlers
-	destroy: function() {
+	removeElement: function() {
 		this.hide();
 
 		if (this.el) {

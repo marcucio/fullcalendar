@@ -4,7 +4,7 @@
 // It is a manager for a DayGrid subcomponent, which does most of the heavy lifting.
 // It is responsible for managing width/height.
 
-var BasicView = fcViews.basic = View.extend({
+var BasicView = View.extend({
 
 	dayGrid: null, // the main subcomponent that does most of the heavy lifting
 
@@ -52,7 +52,7 @@ var BasicView = fcViews.basic = View.extend({
 
 
 	// Renders the view into `this.el`, which should already be assigned
-	render: function() {
+	renderDates: function() {
 
 		this.dayNumbersVisible = this.dayGrid.rowCnt > 1; // TODO: make grid responsible
 		this.weekNumbersVisible = this.opt('weekNumbers');
@@ -65,15 +65,21 @@ var BasicView = fcViews.basic = View.extend({
 		this.scrollerEl = this.el.find('.fc-day-grid-container');
 		this.dayGrid.coordMap.containerEl = this.scrollerEl; // constrain clicks/etc to the dimensions of the scroller
 
-		this.dayGrid.el = this.el.find('.fc-day-grid');
-		this.dayGrid.render(this.hasRigidRows());
+		this.dayGrid.setElement(this.el.find('.fc-day-grid'));
+		this.dayGrid.renderDates(this.hasRigidRows());
 	},
 
 
-	// Make subcomponents ready for cleanup
-	destroy: function() {
-		this.dayGrid.destroy();
-		View.prototype.destroy.call(this); // call the super-method
+	// Unrenders the content of the view. Since we haven't separated skeleton rendering from date rendering,
+	// always completely kill the dayGrid's rendering.
+	unrenderDates: function() {
+		this.dayGrid.unrenderDates();
+		this.dayGrid.removeElement();
+	},
+
+
+	renderBusinessHours: function() {
+		this.dayGrid.renderBusinessHours();
 	},
 
 
@@ -82,14 +88,14 @@ var BasicView = fcViews.basic = View.extend({
 	renderHtml: function() {
 		return '' +
 			'<table>' +
-				'<thead>' +
+				'<thead class="fc-head">' +
 					'<tr>' +
 						'<td class="' + this.widgetHeaderClass + '">' +
 							this.dayGrid.headHtml() + // render the day-of-week headers
 						'</td>' +
 					'</tr>' +
 				'</thead>' +
-				'<tbody>' +
+				'<tbody class="fc-body">' +
 					'<tr>' +
 						'<td class="' + this.widgetContentClass + '">' +
 							'<div class="fc-day-grid-container">' +
@@ -123,7 +129,7 @@ var BasicView = fcViews.basic = View.extend({
 			return '' +
 				'<td class="fc-week-number" ' + this.weekNumberStyleAttr() + '>' +
 					'<span>' + // needed for matchCellWidths
-						this.calendar.calculateWeekNumber(this.dayGrid.getCell(row, 0).start) +
+						this.dayGrid.getCell(row, 0).start.format('w') +
 					'</span>' +
 				'</td>';
 		}
@@ -210,7 +216,7 @@ var BasicView = fcViews.basic = View.extend({
 		unsetScroller(this.scrollerEl);
 		uncompensateScroll(this.headRowEl);
 
-		this.dayGrid.destroySegPopover(); // kill the "more" popover if displayed
+		this.dayGrid.removeSegPopover(); // kill the "more" popover if displayed
 
 		// is the event limit a constant level number?
 		if (eventLimit && typeof eventLimit === 'number') {
@@ -232,8 +238,6 @@ var BasicView = fcViews.basic = View.extend({
 			// doing the scrollbar compensation might have created text overflow which created more height. redo
 			scrollerHeight = this.computeScrollerHeight(totalHeight);
 			this.scrollerEl.height(scrollerHeight);
-
-			this.restoreScroll();
 		}
 	},
 
@@ -268,9 +272,8 @@ var BasicView = fcViews.basic = View.extend({
 
 
 	// Unrenders all event elements and clears internal segment data
-	destroyEvents: function() {
-		this.recordScroll(); // removing events will reduce height and mess with the scroll, so record beforehand
-		this.dayGrid.destroyEvents();
+	unrenderEvents: function() {
+		this.dayGrid.unrenderEvents();
 
 		// we DON'T need to call updateHeight() because:
 		// A) a renderEvents() call always happens after this, which will eventually call updateHeight()
@@ -288,8 +291,8 @@ var BasicView = fcViews.basic = View.extend({
 	},
 
 
-	destroyDrag: function() {
-		this.dayGrid.destroyDrag();
+	unrenderDrag: function() {
+		this.dayGrid.unrenderDrag();
 	},
 
 
@@ -304,8 +307,8 @@ var BasicView = fcViews.basic = View.extend({
 
 
 	// Unrenders a visual indications of a selection
-	destroySelection: function() {
-		this.dayGrid.destroySelection();
+	unrenderSelection: function() {
+		this.dayGrid.unrenderSelection();
 	}
 
 });

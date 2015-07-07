@@ -21,7 +21,7 @@ TimeGrid.mixin({
 
 
 	// Unrenders all currently rendered foreground event segments
-	destroyFgSegs: function(segs) {
+	unrenderFgSegs: function(segs) {
 		if (this.eventSkeletonEl) {
 			this.eventSkeletonEl.remove();
 			this.eventSkeletonEl = null;
@@ -104,14 +104,15 @@ TimeGrid.mixin({
 		var view = this.view;
 		var event = seg.event;
 		var isDraggable = view.isEventDraggable(event);
-		var isResizable = !disableResizing && seg.isEnd && view.isEventResizable(event);
-		var classes = this.getSegClasses(seg, isDraggable, isResizable);
-		var skinCss = this.getEventSkinCss(event);
+		var isResizableFromStart = !disableResizing && seg.isStart && view.isEventResizableFromStart(event);
+		var isResizableFromEnd = !disableResizing && seg.isEnd && view.isEventResizableFromEnd(event);
+		var classes = this.getSegClasses(seg, isDraggable, isResizableFromStart || isResizableFromEnd);
+		var skinCss = cssToStr(this.getEventSkinCss(event));
 		var timeText;
 		var fullTimeText; // more verbose time text. for the print stylesheet
 		var startTimeText; // just the start time text
 
-		classes.unshift('fc-time-grid-event');
+		classes.unshift('fc-time-grid-event', 'fc-v-event');
 
 		if (view.isMultiDayEvent(event)) { // if the event appears to span more than one day...
 			// Don't display time text on segments that run entirely through a day.
@@ -120,13 +121,13 @@ TimeGrid.mixin({
 			if (seg.isStart || seg.isEnd) {
 				timeText = this.getEventTimeText(seg);
 				fullTimeText = this.getEventTimeText(seg, 'LT');
-				startTimeText = this.getEventTimeText({ start: seg.start });
+				startTimeText = this.getEventTimeText(seg, null, false); // displayEnd=false
 			}
 		} else {
 			// Display the normal time text for the *event's* times
 			timeText = this.getEventTimeText(event);
 			fullTimeText = this.getEventTimeText(event, 'LT');
-			startTimeText = this.getEventTimeText({ start: event.start });
+			startTimeText = this.getEventTimeText(event, null, false); // displayEnd=false
 		}
 
 		return '<a class="' + classes.join(' ') + '"' +
@@ -157,8 +158,14 @@ TimeGrid.mixin({
 						) +
 				'</div>' +
 				'<div class="fc-bg"/>' +
-				(isResizable ?
-					'<div class="fc-resizer"/>' :
+				/* TODO: write CSS for this
+				(isResizableFromStart ?
+					'<div class="fc-resizer fc-start-resizer" />' :
+					''
+					) +
+				*/
+				(isResizableFromEnd ?
+					'<div class="fc-resizer fc-end-resizer" />' :
 					''
 					) +
 			'</a>';
@@ -231,7 +238,7 @@ TimeGrid.mixin({
 
 
 // Given an array of segments that are all in the same column, sets the backwardCoord and forwardCoord on each.
-// Also reorders the given array by date!
+// NOTE: Also reorders the given array by date!
 function placeSlotSegs(segs) {
 	var levels;
 	var level0;

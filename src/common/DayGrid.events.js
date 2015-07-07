@@ -8,9 +8,9 @@ DayGrid.mixin({
 
 
 	// Unrenders all events currently rendered on the grid
-	destroyEvents: function() {
-		this.destroySegPopover(); // removes the "more.." events popover
-		Grid.prototype.destroyEvents.apply(this, arguments); // calls the super-method
+	unrenderEvents: function() {
+		this.removeSegPopover(); // removes the "more.." events popover
+		Grid.prototype.unrenderEvents.apply(this, arguments); // calls the super-method
 	},
 
 
@@ -55,7 +55,7 @@ DayGrid.mixin({
 
 
 	// Unrenders all currently rendered foreground event segments
-	destroyFgSegs: function() {
+	unrenderFgSegs: function() {
 		var rowStructs = this.rowStructs || [];
 		var rowStruct;
 
@@ -93,17 +93,24 @@ DayGrid.mixin({
 		var view = this.view;
 		var event = seg.event;
 		var isDraggable = view.isEventDraggable(event);
-		var isResizable = !disableResizing && event.allDay && seg.isEnd && view.isEventResizable(event);
-		var classes = this.getSegClasses(seg, isDraggable, isResizable);
-		var skinCss = this.getEventSkinCss(event);
+		var isResizableFromStart = !disableResizing && event.allDay &&
+			seg.isStart && view.isEventResizableFromStart(event);
+		var isResizableFromEnd = !disableResizing && event.allDay &&
+			seg.isEnd && view.isEventResizableFromEnd(event);
+		var classes = this.getSegClasses(seg, isDraggable, isResizableFromStart || isResizableFromEnd);
+		var skinCss = cssToStr(this.getEventSkinCss(event));
 		var timeHtml = '';
+		var timeText;
 		var titleHtml;
 
-		classes.unshift('fc-day-grid-event');
+		classes.unshift('fc-day-grid-event', 'fc-h-event');
 
 		// Only display a timed events time if it is the starting segment
-		if (!event.allDay && seg.isStart) {
-			timeHtml = '<span class="fc-time">' + htmlEscape(this.getEventTimeText(event)) + '</span>';
+		if (seg.isStart) {
+			timeText = this.getEventTimeText(event);
+			if (timeText) {
+				timeHtml = '<span class="fc-time">' + htmlEscape(timeText) + '</span>';
+			}
 		}
 
 		titleHtml =
@@ -127,8 +134,12 @@ DayGrid.mixin({
 						timeHtml + ' ' + titleHtml   //
 						) +
 				'</div>' +
-				(isResizable ?
-					'<div class="fc-resizer"/>' :
+				(isResizableFromStart ?
+					'<div class="fc-resizer fc-start-resizer" />' :
+					''
+					) +
+				(isResizableFromEnd ?
+					'<div class="fc-resizer fc-end-resizer" />' :
 					''
 					) +
 			'</a>';
@@ -137,6 +148,7 @@ DayGrid.mixin({
 
 	// Given a row # and an array of segments all in the same row, render a <tbody> element, a skeleton that contains
 	// the segments. Returns object with a bunch of internal data about how the render was calculated.
+	// NOTE: modifies rowSegs
 	renderSegRow: function(row, rowSegs) {
 		var colCnt = this.colCnt;
 		var segLevels = this.buildSegLevels(rowSegs); // group into sub-arrays of levels
@@ -225,6 +237,7 @@ DayGrid.mixin({
 
 
 	// Stacks a flat array of segments, which are all assumed to be in the same row, into subarrays of vertical levels.
+	// NOTE: modifies segs
 	buildSegLevels: function(segs) {
 		var levels = [];
 		var i, seg;

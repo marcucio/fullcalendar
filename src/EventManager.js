@@ -24,13 +24,12 @@ function EventManager(options) { // assumed to be a calendar
 	t.removeEvents = removeEvents;
 	t.clientEvents = clientEvents;
 	t.mutateEvent = mutateEvent;
-	t.normalizeEventDateProps = normalizeEventDateProps;
+	t.normalizeEventRange = normalizeEventRange;
+	t.normalizeEventRangeTimes = normalizeEventRangeTimes;
 	t.ensureVisibleEventRange = ensureVisibleEventRange;
 	
 	
 	// imports
-	var trigger = t.trigger;
-	var getView = t.getView;
 	var reportEvents = t.reportEvents;
 	
 	
@@ -40,7 +39,6 @@ function EventManager(options) { // assumed to be a calendar
 	var rangeStart, rangeEnd;
 	var currentFetchID = 0;
 	var pendingSourceCnt = 0;
-	var loadingLevel = 0;
 	var cache = []; // holds events that have already been expanded
 
 
@@ -147,7 +145,7 @@ function EventManager(options) { // assumed to be a calendar
 		var events = source.events;
 		if (events) {
 			if ($.isFunction(events)) {
-				pushLoading();
+				t.pushLoading();
 				events.call(
 					t, // this, the Calendar object
 					rangeStart.clone(),
@@ -155,7 +153,7 @@ function EventManager(options) { // assumed to be a calendar
 					options.timezone,
 					function(events) {
 						callback(events);
-						popLoading();
+						t.popLoading();
 					}
 				);
 			}
@@ -201,7 +199,7 @@ function EventManager(options) { // assumed to be a calendar
 					data[timezoneParam] = options.timezone;
 				}
 
-				pushLoading();
+				t.pushLoading();
 				$.ajax($.extend({}, ajaxDefaults, source, {
 					data: data,
 					success: function(events) {
@@ -218,7 +216,7 @@ function EventManager(options) { // assumed to be a calendar
 					},
 					complete: function() {
 						applyAll(complete, this, arguments);
-						popLoading();
+						t.popLoading();
 					}
 				}));
 			}else{
@@ -433,25 +431,6 @@ function EventManager(options) { // assumed to be a calendar
 	
 	
 	
-	/* Loading State
-	-----------------------------------------------------------------------------*/
-	
-	
-	function pushLoading() {
-		if (!(loadingLevel++)) {
-			trigger('loading', null, true, getView());
-		}
-	}
-	
-	
-	function popLoading() {
-		if (!(--loadingLevel)) {
-			trigger('loading', null, false, getView());
-		}
-	}
-	
-	
-	
 	/* Event Normalization
 	-----------------------------------------------------------------------------*/
 
@@ -534,7 +513,7 @@ function EventManager(options) { // assumed to be a calendar
 					source ? source.allDayDefault : undefined,
 					options.allDayDefault
 				);
-				// still undefined? normalizeEventDateProps will calculate it
+				// still undefined? normalizeEventRange will calculate it
 			}
 
 			assignDatesToEvent(start, end, allDay, out);
@@ -550,35 +529,16 @@ function EventManager(options) { // assumed to be a calendar
 		event.start = start;
 		event.end = end;
 		event.allDay = allDay;
-		normalizeEventDateProps(event);
+		normalizeEventRange(event);
 		backupEventDates(event);
 	}
 
 
-	// Ensures the allDay property exists.
-	// Ensures the start/end dates are consistent with allDay and forceEventDuration.
-	// Accepts an Event object, or a plain object with event-ish properties.
+	// Ensures proper values for allDay/start/end. Accepts an Event object, or a plain object with event-ish properties.
 	// NOTE: Will modify the given object.
-	function normalizeEventDateProps(props) {
+	function normalizeEventRange(props) {
 
-		if (props.allDay == null) {
-			props.allDay = !(props.start.hasTime() || (props.end && props.end.hasTime()));
-		}
-
-		if (props.allDay) {
-			props.start.stripTime();
-			if (props.end) {
-				props.end.stripTime();
-			}
-		}
-		else {
-			if (!props.start.hasTime()) {
-				props.start = t.rezoneDate(props.start); // will also give it a 00:00 time
-			}
-			if (props.end && !props.end.hasTime()) {
-				props.end = t.rezoneDate(props.end); // will also give it a 00:00 time
-			}
-		}
+		normalizeEventRangeTimes(props);
 
 		if (props.end && !props.end.isAfter(props.start)) {
 			props.end = null;
@@ -590,6 +550,30 @@ function EventManager(options) { // assumed to be a calendar
 			}
 			else {
 				props.end = null;
+			}
+		}
+	}
+
+
+	// Ensures the allDay property exists and the timeliness of the start/end dates are consistent
+	function normalizeEventRangeTimes(range) {
+		if (range.allDay == null) {
+			range.allDay = !(range.start.hasTime() || (range.end && range.end.hasTime()));
+		}
+
+		if (range.allDay) {
+			range.start.stripTime();
+			if (range.end) {
+				// TODO: consider nextDayThreshold here? If so, will require a lot of testing and adjustment
+				range.end.stripTime();
+			}
+		}
+		else {
+			if (!range.start.hasTime()) {
+				range.start = t.rezoneDate(range.start); // will assign a 00:00 time
+			}
+			if (range.end && !range.end.hasTime()) {
+				range.end = t.rezoneDate(range.end); // will assign a 00:00 time
 			}
 		}
 	}
@@ -608,10 +592,8 @@ function EventManager(options) { // assumed to be a calendar
 				allDay = !range.start.hasTime();
 			}
 
-			range = {
-				start: range.start,
-				end: t.getDefaultEventEnd(allDay, range.start)
-			};
+			range = $.extend({}, range); // make a copy, copying over other misc properties
+			range.end = t.getDefaultEventEnd(allDay, range.start);
 		}
 		return range;
 	}
@@ -694,55 +676,70 @@ function EventManager(options) { // assumed to be a calendar
 	// If `props` does not contain start/end dates, the updated values are assumed to be the event's current start/end.
 	// All date comparisons are done against the event's pristine _start and _end dates.
 	// Returns an object with delta information and a function to undo all operations.
-	//
-	function mutateEvent(event, props) {
+	// For making computations in a granularity greater than day/time, specify largeUnit.
+	// NOTE: The given `newProps` might be mutated for normalization purposes.
+	function mutateEvent(event, newProps, largeUnit) {
 		var miscProps = {};
+		var oldProps;
 		var clearEnd;
-		var dateDelta;
+		var startDelta;
+		var endDelta;
 		var durationDelta;
 		var undoFunc;
 
-		props = props || {};
-
-		// ensure new date-related values to compare against
-		if (!props.start) {
-			props.start = event.start.clone();
+		// diffs the dates in the appropriate way, returning a duration
+		function diffDates(date1, date0) { // date1 - date0
+			if (largeUnit) {
+				return diffByUnit(date1, date0, largeUnit);
+			}
+			else if (newProps.allDay) {
+				return diffDay(date1, date0);
+			}
+			else {
+				return diffDayTime(date1, date0);
+			}
 		}
-		if (props.end === undefined) {
-			props.end = event.end ? event.end.clone() : null;
+
+		newProps = newProps || {};
+
+		// normalize new date-related properties
+		if (!newProps.start) {
+			newProps.start = event.start.clone();
 		}
-		if (props.allDay == null) { // is null or undefined?
-			props.allDay = event.allDay;
+		if (newProps.end === undefined) {
+			newProps.end = event.end ? event.end.clone() : null;
 		}
+		if (newProps.allDay == null) { // is null or undefined?
+			newProps.allDay = event.allDay;
+		}
+		normalizeEventRange(newProps);
 
-		normalizeEventDateProps(props); // massages start/end/allDay
+		// create normalized versions of the original props to compare against
+		// need a real end value, for diffing
+		oldProps = {
+			start: event._start.clone(),
+			end: event._end ? event._end.clone() : t.getDefaultEventEnd(event._allDay, event._start),
+			allDay: newProps.allDay // normalize the dates in the same regard as the new properties
+		};
+		normalizeEventRange(oldProps);
 
-		// clear the end date if explicitly changed to null
-		clearEnd = event._end !== null && props.end === null;
+		// need to clear the end date if explicitly changed to null
+		clearEnd = event._end !== null && newProps.end === null;
 
-		// compute the delta for moving the start and end dates together
-		if (props.allDay) {
-			dateDelta = diffDay(props.start, event._start); // whole-day diff from start-of-day
+		// compute the delta for moving the start date
+		startDelta = diffDates(newProps.start, oldProps.start);
+
+		// compute the delta for moving the end date
+		if (newProps.end) {
+			endDelta = diffDates(newProps.end, oldProps.end);
+			durationDelta = endDelta.subtract(startDelta);
 		}
 		else {
-			dateDelta = diffDayTime(props.start, event._start);
-		}
-
-		// compute the delta for moving the end date (after applying dateDelta)
-		if (!clearEnd && props.end) {
-			durationDelta = diffDayTime(
-				// new duration
-				props.end,
-				props.start
-			).subtract(diffDayTime(
-				// subtract old duration
-				event._end || t.getDefaultEventEnd(event._allDay, event._start),
-				event._start
-			));
+			durationDelta = null;
 		}
 
 		// gather all non-date-related properties
-		$.each(props, function(name, val) {
+		$.each(newProps, function(name, val) {
 			if (isMiscEventPropName(name)) {
 				if (val !== undefined) {
 					miscProps[name] = val;
@@ -754,14 +751,14 @@ function EventManager(options) { // assumed to be a calendar
 		undoFunc = mutateEvents(
 			clientEvents(event._id), // get events with this ID
 			clearEnd,
-			props.allDay,
-			dateDelta,
+			newProps.allDay,
+			startDelta,
 			durationDelta,
 			miscProps
 		);
 
 		return {
-			dateDelta: dateDelta,
+			dateDelta: startDelta,
 			durationDelta: durationDelta,
 			undo: undoFunc
 		};
@@ -807,16 +804,17 @@ function EventManager(options) { // assumed to be a calendar
 			newProps = {
 				start: event._start,
 				end: event._end,
-				allDay: event._allDay
+				allDay: allDay // normalize the dates in the same regard as the new properties
 			};
+			normalizeEventRange(newProps); // massages start/end/allDay
 
+			// strip or ensure the end date
 			if (clearEnd) {
 				newProps.end = null;
 			}
-
-			newProps.allDay = allDay;
-
-			normalizeEventDateProps(newProps); // massages start/end/allDay
+			else if (durationDelta && !newProps.end) { // the duration translation requires an end date
+				newProps.end = t.getDefaultEventEnd(newProps.allDay, newProps.start);
+			}
 
 			if (dateDelta) {
 				newProps.start.add(dateDelta);
@@ -826,10 +824,7 @@ function EventManager(options) { // assumed to be a calendar
 			}
 
 			if (durationDelta) {
-				if (!newProps.end) {
-					newProps.end = t.getDefaultEventEnd(newProps.allDay, newProps.start);
-				}
-				newProps.end.add(durationDelta);
+				newProps.end.add(durationDelta); // end already ensured above
 			}
 
 			// if the dates have changed, and we know it is impossible to recompute the
@@ -870,7 +865,7 @@ function EventManager(options) { // assumed to be a calendar
 
 	// Returns an array of events as to when the business hours occur in the given view.
 	// Abuse of our event system :(
-	function getBusinessHoursEvents() {
+	function getBusinessHoursEvents(wholeDay) {
 		var optionVal = options.businessHours;
 		var defaultVal = {
 			className: 'fc-nonbusiness',
@@ -882,18 +877,22 @@ function EventManager(options) { // assumed to be a calendar
 		var view = t.getView();
 		var eventInput;
 
-		if (optionVal) {
-			if (typeof optionVal === 'object') {
-				// option value is an object that can override the default business hours
-				eventInput = $.extend({}, defaultVal, optionVal);
-			}
-			else {
-				// option value is `true`. use default business hours
-				eventInput = defaultVal;
-			}
+		if (optionVal) { // `true` (which means "use the defaults") or an override object
+			eventInput = $.extend(
+				{}, // copy to a new object in either case
+				defaultVal,
+				typeof optionVal === 'object' ? optionVal : {} // override the defaults
+			);
 		}
 
 		if (eventInput) {
+
+			// if a whole-day series is requested, clear the start/end times
+			if (wholeDay) {
+				eventInput.start = null;
+				eventInput.end = null;
+			}
+
 			return expandEvent(
 				buildEventFromInput(eventInput),
 				view.start,
@@ -967,14 +966,14 @@ function EventManager(options) { // assumed to be a calendar
 	function isRangeAllowed(range, constraint, overlap, event) {
 		var constraintEvents;
 		var anyContainment;
-		var i, otherEvent;
-		var otherOverlap;
+		var peerEvents;
+		var i, peerEvent;
+		var peerOverlap;
 
 		// normalize. fyi, we're normalizing in too many places :(
-		range = {
-			start: range.start.clone().stripZone(),
-			end: range.end.clone().stripZone()
-		};
+		range = $.extend({}, range); // copy all properties in case there are misc non-date properties
+		range.start = range.start.clone().stripZone();
+		range.end = range.end.clone().stripZone();
 
 		// the range must be fully contained by at least one of produced constraint events
 		if (constraint != null) {
@@ -996,37 +995,36 @@ function EventManager(options) { // assumed to be a calendar
 			}
 		}
 
-		for (i = 0; i < cache.length; i++) { // loop all events and detect overlap
-			otherEvent = cache[i];
+		peerEvents = t.getPeerEvents(event, range);
 
-			// don't compare the event to itself or other related [repeating] events
-			if (event && event._id === otherEvent._id) {
-				continue;
-			}
+		for (i = 0; i < peerEvents.length; i++)  {
+			peerEvent = peerEvents[i];
 
 			// there needs to be an actual intersection before disallowing anything
-			if (eventIntersectsRange(otherEvent, range)) {
+			if (eventIntersectsRange(peerEvent, range)) {
 
 				// evaluate overlap for the given range and short-circuit if necessary
 				if (overlap === false) {
 					return false;
 				}
-				else if (typeof overlap === 'function' && !overlap(otherEvent, event)) {
+				// if the event's overlap is a test function, pass the peer event in question as the first param
+				else if (typeof overlap === 'function' && !overlap(peerEvent, event)) {
 					return false;
 				}
 
 				// if we are computing if the given range is allowable for an event, consider the other event's
 				// EventObject-specific or Source-specific `overlap` property
 				if (event) {
-					otherOverlap = firstDefined(
-						otherEvent.overlap,
-						(otherEvent.source || {}).overlap
+					peerOverlap = firstDefined(
+						peerEvent.overlap,
+						(peerEvent.source || {}).overlap
 						// we already considered the global `eventOverlap`
 					);
-					if (otherOverlap === false) {
+					if (peerOverlap === false) {
 						return false;
 					}
-					if (typeof otherOverlap === 'function' && !otherOverlap(event, otherEvent)) {
+					// if the peer event's overlap is a test function, pass the subject event as the first param
+					if (typeof peerOverlap === 'function' && !peerOverlap(event, peerEvent)) {
 						return false;
 					}
 				}
@@ -1074,7 +1072,33 @@ function EventManager(options) { // assumed to be a calendar
 		return range.start < eventEnd && range.end > eventStart;
 	}
 
+
+	t.getEventCache = function() {
+		return cache;
+	};
+
 }
+
+
+// Returns a list of events that the given event should be compared against when being considered for a move to
+// the specified range. Attached to the Calendar's prototype because EventManager is a mixin for a Calendar.
+Calendar.prototype.getPeerEvents = function(event, range) {
+	var cache = this.getEventCache();
+	var peerEvents = [];
+	var i, otherEvent;
+
+	for (i = 0; i < cache.length; i++) {
+		otherEvent = cache[i];
+		if (
+			!event ||
+			event._id !== otherEvent._id // don't compare the event to itself or other related [repeating] events
+		) {
+			peerEvents.push(otherEvent);
+		}
+	}
+
+	return peerEvents;
+};
 
 
 // updates the "backup" properties, which are preserved in order to compute diffs later on.

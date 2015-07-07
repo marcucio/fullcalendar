@@ -3,6 +3,11 @@
 fc.intersectionToSeg = intersectionToSeg;
 fc.applyAll = applyAll;
 fc.debounce = debounce;
+fc.isInt = isInt;
+fc.htmlEscape = htmlEscape;
+fc.cssToStr = cssToStr;
+fc.proxy = proxy;
+fc.capitaliseFirstLetter = capitaliseFirstLetter;
 
 
 /* FullCalendar-specific DOM Utilities
@@ -230,6 +235,10 @@ function unsetScroller(containerEl) {
 /* General DOM Utilities
 ----------------------------------------------------------------------------------------------------------------------*/
 
+fc.getClientRect = getClientRect;
+fc.getContentRect = getContentRect;
+fc.getScrollbarWidths = getScrollbarWidths;
+
 
 // borrowed from https://github.com/jquery/jquery-ui/blob/1.11.0/ui/core.js#L51
 function getScrollParent(el) {
@@ -245,20 +254,110 @@ function getScrollParent(el) {
 }
 
 
-// Given a container element, return an object with the pixel values of the left/right scrollbars.
-// Left scrollbars might occur on RTL browsers (IE maybe?) but I have not tested.
-// PREREQUISITE: container element must have a single child with display:block
-function getScrollbarWidths(container) {
-	var containerLeft = container.offset().left;
-	var containerRight = containerLeft + container.width();
-	var inner = container.children();
-	var innerLeft = inner.offset().left;
-	var innerRight = innerLeft + inner.outerWidth();
+// Queries the outer bounding area of a jQuery element.
+// Returns a rectangle with absolute coordinates: left, right (exclusive), top, bottom (exclusive).
+function getOuterRect(el) {
+	var offset = el.offset();
 
 	return {
-		left: innerLeft - containerLeft,
-		right: containerRight - innerRight
+		left: offset.left,
+		right: offset.left + el.outerWidth(),
+		top: offset.top,
+		bottom: offset.top + el.outerHeight()
 	};
+}
+
+
+// Queries the area within the margin/border/scrollbars of a jQuery element. Does not go within the padding.
+// Returns a rectangle with absolute coordinates: left, right (exclusive), top, bottom (exclusive).
+// NOTE: should use clientLeft/clientTop, but very unreliable cross-browser.
+function getClientRect(el) {
+	var offset = el.offset();
+	var scrollbarWidths = getScrollbarWidths(el);
+	var left = offset.left + getCssFloat(el, 'border-left-width') + scrollbarWidths.left;
+	var top = offset.top + getCssFloat(el, 'border-top-width') + scrollbarWidths.top;
+
+	return {
+		left: left,
+		right: left + el[0].clientWidth, // clientWidth includes padding but NOT scrollbars
+		top: top,
+		bottom: top + el[0].clientHeight // clientHeight includes padding but NOT scrollbars
+	};
+}
+
+
+// Queries the area within the margin/border/padding of a jQuery element. Assumed not to have scrollbars.
+// Returns a rectangle with absolute coordinates: left, right (exclusive), top, bottom (exclusive).
+function getContentRect(el) {
+	var offset = el.offset(); // just outside of border, margin not included
+	var left = offset.left + getCssFloat(el, 'border-left-width') + getCssFloat(el, 'padding-left');
+	var top = offset.top + getCssFloat(el, 'border-top-width') + getCssFloat(el, 'padding-top');
+
+	return {
+		left: left,
+		right: left + el.width(),
+		top: top,
+		bottom: top + el.height()
+	};
+}
+
+
+// Returns the computed left/right/top/bottom scrollbar widths for the given jQuery element.
+// NOTE: should use clientLeft/clientTop, but very unreliable cross-browser.
+function getScrollbarWidths(el) {
+	var leftRightWidth = el.innerWidth() - el[0].clientWidth; // the paddings cancel out, leaving the scrollbars
+	var widths = {
+		left: 0,
+		right: 0,
+		top: 0,
+		bottom: el.innerHeight() - el[0].clientHeight // the paddings cancel out, leaving the bottom scrollbar
+	};
+
+	if (getIsLeftRtlScrollbars() && el.css('direction') == 'rtl') { // is the scrollbar on the left side?
+		widths.left = leftRightWidth;
+	}
+	else {
+		widths.right = leftRightWidth;
+	}
+
+	return widths;
+}
+
+
+// Logic for determining if, when the element is right-to-left, the scrollbar appears on the left side
+
+var _isLeftRtlScrollbars = null;
+
+function getIsLeftRtlScrollbars() { // responsible for caching the computation
+	if (_isLeftRtlScrollbars === null) {
+		_isLeftRtlScrollbars = computeIsLeftRtlScrollbars();
+	}
+	return _isLeftRtlScrollbars;
+}
+
+function computeIsLeftRtlScrollbars() { // creates an offscreen test element, then removes it
+	var el = $('<div><div/></div>')
+		.css({
+			position: 'absolute',
+			top: -1000,
+			left: 0,
+			border: 0,
+			padding: 0,
+			overflow: 'scroll',
+			direction: 'rtl'
+		})
+		.appendTo('body');
+	var innerEl = el.children();
+	var res = innerEl.offset().left > el.offset().left; // is the inner div shifted to accommodate a left scrollbar?
+	el.remove();
+	return res;
+}
+
+
+// Retrieves a jQuery element's computed CSS value as a floating-point number.
+// If the queried value is non-numeric (ex: IE can return "medium" for border width), will just return zero.
+function getCssFloat(el, prop) {
+	return parseFloat(el.css(prop)) || 0;
 }
 
 
@@ -270,6 +369,53 @@ function isPrimaryMouseButton(ev) {
 	else {
 		return ev.which == 1 && !ev.ctrlKey;
 	}
+}
+
+
+/* Geometry
+----------------------------------------------------------------------------------------------------------------------*/
+
+
+// Returns a new rectangle that is the intersection of the two rectangles. If they don't intersect, returns false
+function intersectRects(rect1, rect2) {
+	var res = {
+		left: Math.max(rect1.left, rect2.left),
+		right: Math.min(rect1.right, rect2.right),
+		top: Math.max(rect1.top, rect2.top),
+		bottom: Math.min(rect1.bottom, rect2.bottom)
+	};
+
+	if (res.left < res.right && res.top < res.bottom) {
+		return res;
+	}
+	return false;
+}
+
+
+// Returns a new point that will have been moved to reside within the given rectangle
+function constrainPoint(point, rect) {
+	return {
+		left: Math.min(Math.max(point.left, rect.left), rect.right),
+		top: Math.min(Math.max(point.top, rect.top), rect.bottom)
+	};
+}
+
+
+// Returns a point that is the center of the given rectangle
+function getRectCenter(rect) {
+	return {
+		left: (rect.left + rect.right) / 2,
+		top: (rect.top + rect.bottom) / 2
+	};
+}
+
+
+// Subtracts point2's coordinates from point1's coordinates, returning a delta
+function diffPoints(point1, point2) {
+	return {
+		left: point1.left - point2.left,
+		top: point1.top - point2.top
+	};
 }
 
 
@@ -318,25 +464,11 @@ function intersectionToSeg(subjectRange, constraintRange) {
 }
 
 
-function smartProperty(obj, name) { // get a camel-cased/namespaced property of an object
-	obj = obj || {};
-	if (obj[name] !== undefined) {
-		return obj[name];
-	}
-	var parts = name.split(/(?=[A-Z])/),
-		i = parts.length - 1, res;
-	for (; i>=0; i--) {
-		res = obj[parts[i].toLowerCase()];
-		if (res !== undefined) {
-			return res;
-		}
-	}
-	return obj['default'];
-}
-
-
 /* Date Utilities
 ----------------------------------------------------------------------------------------------------------------------*/
+
+fc.computeIntervalUnit = computeIntervalUnit;
+fc.durationHasTime = durationHasTime;
 
 var dayIDs = [ 'sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat' ];
 var intervalUnits = [ 'year', 'month', 'week', 'day', 'hour', 'minute', 'second', 'millisecond' ];
@@ -360,38 +492,27 @@ function diffDay(a, b) {
 }
 
 
-// Computes the larges whole-unit period of time, as a duration object.
-// For example, 48 hours will be {days:2} whereas 49 hours will be {hours:49}.
+// Diffs two moments, producing a duration, made of a whole-unit-increment of the given unit. Uses rounding.
+function diffByUnit(a, b, unit) {
+	return moment.duration(
+		Math.round(a.diff(b, unit, true)), // returnFloat=true
+		unit
+	);
+}
+
+
+// Computes the unit name of the largest whole-unit period of time.
+// For example, 48 hours will be "days" whereas 49 hours will be "hours".
 // Accepts start/end, a range object, or an original duration object.
-/* (never used)
-function computeIntervalDuration(start, end) {
-	var durationInput = {};
+function computeIntervalUnit(start, end) {
 	var i, unit;
 	var val;
 
 	for (i = 0; i < intervalUnits.length; i++) {
 		unit = intervalUnits[i];
-		val = computeIntervalAs(unit, start, end);
-		if (val) {
-			break;
-		}
-	}
+		val = computeRangeAs(unit, start, end);
 
-	durationInput[unit] = val;
-	return moment.duration(durationInput);
-}
-*/
-
-
-// Computes the unit name of the largest whole-unit period of time.
-// For example, 48 hours will be "days" wherewas 49 hours will be "hours".
-// Accepts start/end, a range object, or an original duration object.
-function computeIntervalUnit(start, end) {
-	var i, unit;
-
-	for (i = 0; i < intervalUnits.length; i++) {
-		unit = intervalUnits[i];
-		if (computeIntervalAs(unit, start, end)) {
+		if (val >= 1 && isInt(val)) {
 			break;
 		}
 	}
@@ -400,27 +521,27 @@ function computeIntervalUnit(start, end) {
 }
 
 
-// Computes the number of units the interval is cleanly comprised of.
-// If the given unit does not cleanly divide the interval a whole number of times, `false` is returned.
-// Accepts start/end, a range object, or an original duration object.
-function computeIntervalAs(unit, start, end) {
-	var val;
+// Computes the number of units (like "hours") in the given range.
+// Range can be a {start,end} object, separate start/end args, or a Duration.
+// Results are based on Moment's .as() and .diff() methods, so results can depend on internal handling
+// of month-diffing logic (which tends to vary from version to version).
+function computeRangeAs(unit, start, end) {
 
 	if (end != null) { // given start, end
-		val = end.diff(start, unit, true);
+		return end.diff(start, unit, true);
 	}
 	else if (moment.isDuration(start)) { // given duration
-		val = start.as(unit);
+		return start.as(unit);
 	}
 	else { // given { start, end } range object
-		val = start.end.diff(start.start, unit, true);
+		return start.end.diff(start.start, unit, true);
 	}
+}
 
-	if (val >= 1 && isInt(val)) {
-		return val;
-	}
 
-	return false;
+// Returns a boolean about whether the given duration has any time parts (hours/minutes/seconds/ms)
+function durationHasTime(dur) {
+	return Boolean(dur.hours() || dur.minutes() || dur.seconds() || dur.milliseconds());
 }
 
 
@@ -441,6 +562,55 @@ function isTimeString(str) {
 var hasOwnPropMethod = {}.hasOwnProperty;
 
 
+// Merges an array of objects into a single object.
+// The second argument allows for an array of property names who's object values will be merged together.
+function mergeProps(propObjs, complexProps) {
+	var dest = {};
+	var i, name;
+	var complexObjs;
+	var j, val;
+	var props;
+
+	if (complexProps) {
+		for (i = 0; i < complexProps.length; i++) {
+			name = complexProps[i];
+			complexObjs = [];
+
+			// collect the trailing object values, stopping when a non-object is discovered
+			for (j = propObjs.length - 1; j >= 0; j--) {
+				val = propObjs[j][name];
+
+				if (typeof val === 'object') {
+					complexObjs.unshift(val);
+				}
+				else if (val !== undefined) {
+					dest[name] = val; // if there were no objects, this value will be used
+					break;
+				}
+			}
+
+			// if the trailing values were objects, use the merged value
+			if (complexObjs.length) {
+				dest[name] = mergeProps(complexObjs);
+			}
+		}
+	}
+
+	// copy values into the destination, going from last to first
+	for (i = propObjs.length - 1; i >= 0; i--) {
+		props = propObjs[i];
+
+		for (name in props) {
+			if (!(name in dest)) { // if already assigned by previous props or complex props, don't reassign
+				dest[name] = props[name];
+			}
+		}
+	}
+
+	return dest;
+}
+
+
 // Create an object that has the given prototype. Just like Object.create
 function createObject(proto) {
 	var f = function() {};
@@ -452,6 +622,22 @@ function createObject(proto) {
 function copyOwnProps(src, dest) {
 	for (var name in src) {
 		if (hasOwnProp(src, name)) {
+			dest[name] = src[name];
+		}
+	}
+}
+
+
+// Copies over certain methods with the same names as Object.prototype methods. Overcomes an IE<=8 bug:
+// https://developer.mozilla.org/en-US/docs/ECMAScript_DontEnum_attribute#JScript_DontEnum_Bug
+function copyNativeMethods(src, dest) {
+	var names = [ 'constructor', 'toString', 'valueOf' ];
+	var i, name;
+
+	for (i = 0; i < names.length; i++) {
+		name = names[i];
+
+		if (src[name] !== Object.prototype[name]) {
 			dest[name] = src[name];
 		}
 	}
@@ -508,6 +694,21 @@ function stripHtmlEntities(text) {
 }
 
 
+// Given a hash of CSS properties, returns a string of CSS.
+// Uses property names as-is (no camel-case conversion). Will not make statements for null/undefined values.
+function cssToStr(cssProps) {
+	var statements = [];
+
+	$.each(cssProps, function(name, val) {
+		if (val != null) {
+			statements.push(name + ':' + val);
+		}
+	});
+
+	return statements.join(';');
+}
+
+
 function capitaliseFirstLetter(str) {
 	return str.charAt(0).toUpperCase() + str.slice(1);
 }
@@ -520,6 +721,18 @@ function compareNumbers(a, b) { // for .sort()
 
 function isInt(n) {
 	return n % 1 === 0;
+}
+
+
+// Returns a method bound to the given object context.
+// Just like one of the jQuery.proxy signatures, but without the undesired behavior of treating the same method with
+// different contexts as identical when binding/unbinding events.
+function proxy(obj, methodName) {
+	var method = obj[methodName];
+
+	return function() {
+		return method.apply(obj, arguments);
+	};
 }
 
 

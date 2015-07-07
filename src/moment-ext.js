@@ -98,7 +98,12 @@ function makeMoment(args, parseAsUTC, parseZone) {
 				mom._ambigZone = true;
 			}
 			else if (isSingleString) {
-				mom.zone(input); // if not a valid zone, will assign UTC
+				if (mom.utcOffset) {
+					mom.utcOffset(input); // if not a valid zone, will assign UTC
+				}
+				else {
+					mom.zone(input); // for moment-pre-2.9
+				}
 			}
 		}
 	}
@@ -121,6 +126,27 @@ newMomentProto.clone = function() {
 	}
 
 	return mom;
+};
+
+
+// Week Number
+// -------------------------------------------------------------------------------------------------
+
+
+// Returns the week number, considering the locale's custom week number calcuation
+// `weeks` is an alias for `week`
+newMomentProto.week = newMomentProto.weeks = function(input) {
+	var weekCalc = (this._locale || this._lang) // works pre-moment-2.8
+		._fullCalendar_weekCalc;
+
+	if (input == null && typeof weekCalc === 'function') { // custom function only works for getter
+		return weekCalc(this);
+	}
+	else if (weekCalc === 'ISO') {
+		return oldMomentProto.isoWeek.apply(this, arguments); // ISO getter/setter
+	}
+
+	return oldMomentProto.week.apply(this, arguments); // local getter/setter
 };
 
 
@@ -185,10 +211,11 @@ newMomentProto.stripTime = function() {
 		// get the values before any conversion happens
 		a = this.toArray(); // array of y/m/d/h/m/s/ms
 
+		// TODO: use keepLocalTime in the future
 		this.utc(); // set the internal UTC flag (will clear the ambig flags)
 		setUTCValues(this, a.slice(0, 3)); // set the year/month/date. time will be zero
 
-		// Mark the time as ambiguous. This needs to happen after the .utc() call, which calls .zone(),
+		// Mark the time as ambiguous. This needs to happen after the .utc() call, which might call .utcOffset(),
 		// which clears all ambig flags. Same with setUTCValues with moment-timezone.
 		this._ambigTime = true;
 		this._ambigZone = true; // if ambiguous time, also ambiguous timezone offset
@@ -209,6 +236,7 @@ newMomentProto.hasTime = function() {
 // Converts the moment to UTC, stripping out its timezone offset, but preserving its
 // YMD and time-of-day. A moment with a stripped timezone offset will display no
 // timezone offset when .format() is called.
+// TODO: look into Moment's keepLocalTime functionality
 newMomentProto.stripZone = function() {
 	var a, wasAmbigTime;
 
@@ -218,16 +246,14 @@ newMomentProto.stripZone = function() {
 		a = this.toArray(); // array of y/m/d/h/m/s/ms
 		wasAmbigTime = this._ambigTime;
 
-		this.utc(); // set the internal UTC flag (will clear the ambig flags)
+		this.utc(); // set the internal UTC flag (might clear the ambig flags, depending on Moment internals)
 		setUTCValues(this, a); // will set the year/month/date/hours/minutes/seconds/ms
 
-		if (wasAmbigTime) {
-			// the above call to .utc()/.zone() unfortunately clears the ambig flags, so reassign
-			this._ambigTime = true;
-		}
+		// the above call to .utc()/.utcOffset() unfortunately might clear the ambig flags, so restore
+		this._ambigTime = wasAmbigTime || false;
 
-		// Mark the zone as ambiguous. This needs to happen after the .utc() call, which calls .zone(),
-		// which clears all ambig flags. Same with setUTCValues with moment-timezone.
+		// Mark the zone as ambiguous. This needs to happen after the .utc() call, which might call .utcOffset(),
+		// which clears the ambig flags. Same with setUTCValues with moment-timezone.
 		this._ambigZone = true;
 	}
 
@@ -239,34 +265,65 @@ newMomentProto.hasZone = function() {
 	return !this._ambigZone;
 };
 
-// this method implicitly marks a zone (will get called upon .utc() and .local())
-newMomentProto.zone = function(tzo) {
-
-	if (tzo != null) { // setter
-		// these assignments needs to happen before the original zone method is called.
-		// I forget why, something to do with a browser crash.
-		this._ambigTime = false;
-		this._ambigZone = false;
-	}
-
-	return oldMomentProto.zone.apply(this, arguments);
-};
 
 // this method implicitly marks a zone
 newMomentProto.local = function() {
 	var a = this.toArray(); // year,month,date,hours,minutes,seconds,ms as an array
 	var wasAmbigZone = this._ambigZone;
 
-	oldMomentProto.local.apply(this, arguments); // will clear ambig flags
+	oldMomentProto.local.apply(this, arguments);
+
+	// ensure non-ambiguous
+	// this probably already happened via local() -> utcOffset(), but don't rely on Moment's internals
+	this._ambigTime = false;
+	this._ambigZone = false;
 
 	if (wasAmbigZone) {
 		// If the moment was ambiguously zoned, the date fields were stored as UTC.
 		// We want to preserve these, but in local time.
+		// TODO: look into Moment's keepLocalTime functionality
 		setLocalValues(this, a);
 	}
 
 	return this; // for chaining
 };
+
+
+// implicitly marks a zone
+newMomentProto.utc = function() {
+	oldMomentProto.utc.apply(this, arguments);
+
+	// ensure non-ambiguous
+	// this probably already happened via utc() -> utcOffset(), but don't rely on Moment's internals
+	this._ambigTime = false;
+	this._ambigZone = false;
+
+	return this;
+};
+
+
+// methods for arbitrarily manipulating timezone offset.
+// should clear time/zone ambiguity when called.
+$.each([
+	'zone', // only in moment-pre-2.9. deprecated afterwards
+	'utcOffset'
+], function(i, name) {
+	if (oldMomentProto[name]) { // original method exists?
+
+		// this method implicitly marks a zone (will probably get called upon .utc() and .local())
+		newMomentProto[name] = function(tzo) {
+
+			if (tzo != null) { // setter
+				// these assignments needs to happen before the original zone method is called.
+				// I forget why, something to do with a browser crash.
+				this._ambigTime = false;
+				this._ambigZone = false;
+			}
+
+			return oldMomentProto[name].apply(this, arguments);
+		};
+	}
+});
 
 
 // Formatting
@@ -388,6 +445,7 @@ function commonlyAmbiguate(inputs, preserveTime) {
 }
 
 // Transfers all the flags related to ambiguous time/zone from the `src` moment to the `dest` moment
+// TODO: look into moment.momentProperties for this.
 function transferAmbigs(src, dest) {
 	if (src._ambigTime) {
 		dest._ambigTime = true;

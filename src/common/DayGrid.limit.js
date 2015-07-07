@@ -9,9 +9,9 @@ DayGrid.mixin({
 	popoverSegs: null, // an array of segment objects that the segPopover holds. null when not visible
 
 
-	destroySegPopover: function() {
+	removeSegPopover: function() {
 		if (this.segPopover) {
-			this.segPopover.hide(); // will trigger destruction of `segPopover` and `popoverSegs`
+			this.segPopover.hide(); // in handler, will call segPopover's removeElement
 		}
 	},
 
@@ -51,11 +51,22 @@ DayGrid.mixin({
 		var rowHeight = rowEl.height(); // TODO: cache somehow?
 		var trEls = this.rowStructs[row].tbodyEl.children();
 		var i, trEl;
+		var trHeight;
+
+		function iterInnerHeights(i, childNode) {
+			trHeight = Math.max(trHeight, $(childNode).outerHeight());
+		}
 
 		// Reveal one level <tr> at a time and stop when we find one out of bounds
 		for (i = 0; i < trEls.length; i++) {
-			trEl = trEls.eq(i).removeClass('fc-limited'); // get and reveal
-			if (trEl.position().top + trEl.outerHeight() > rowHeight) {
+			trEl = trEls.eq(i).removeClass('fc-limited'); // reset to original state (reveal)
+
+			// with rowspans>1 and IE8, trEl.outerHeight() would return the height of the largest cell,
+			// so instead, find the tallest inner content element.
+			trHeight = 0;
+			trEl.find('> td > :first-child').each(iterInnerHeights);
+
+			if (trEl.position().top + trHeight > rowHeight) {
 				return i;
 			}
 		}
@@ -235,8 +246,8 @@ DayGrid.mixin({
 			autoHide: true, // when the user clicks elsewhere, hide the popover
 			viewportConstrain: view.opt('popoverViewportConstrain'),
 			hide: function() {
-				// destroy everything when the popover is hidden
-				_this.segPopover.destroy();
+				// kill everything when the popover is hidden
+				_this.segPopover.removeElement();
 				_this.segPopover = null;
 				_this.popoverSegs = null;
 			}
@@ -308,13 +319,18 @@ DayGrid.mixin({
 		var dayRange = { start: dayStart, end: dayEnd };
 
 		// slice the events with a custom slicing function
-		return this.eventsToSegs(
+		segs = this.eventsToSegs(
 			events,
 			function(range) {
 				var seg = intersectionToSeg(range, dayRange); // undefind if no intersection
 				return seg ? [ seg ] : []; // must return an array of segments
 			}
 		);
+
+		// force an order because eventsToSegs doesn't guarantee one
+		segs.sort(compareSegs);
+
+		return segs;
 	},
 
 
