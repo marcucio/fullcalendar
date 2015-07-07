@@ -11010,16 +11010,16 @@ var ListView = fcViews.list = View.extend({
 		this.dayGrid.coordMap.containerEl = this.scrollerEl; // constrain clicks/etc to the dimensions of the scroller
 
 		this.dayGrid.el = this.el.find('.fc-day-grid');
-		this.dayGrid.render(this.hasRigidRows());
+		this.dayGrid.renderDates(this.hasRigidRows());
 
-		View.prototype.render.call(this); // call the super-method
+		View.prototype.renderDates.call(this); // call the super-method
 	},
 
 
 	// Make subcomponents ready for cleanup
 	destroy: function() {
-		this.dayGrid.destroy();
-		View.prototype.destroy.call(this); // call the super-method
+	//	this.dayGrid.destroy();
+	//	View.prototype.destroy.call(this); // call the super-method
 	},
 
 
@@ -11171,7 +11171,7 @@ var ListView = fcViews.list = View.extend({
 		unsetScroller(this.scrollerEl);
 		uncompensateScroll(this.headRowEl);
 
-		this.dayGrid.destroySegPopover(); // kill the "more" popover if displayed
+		//this.dayGrid.destroySegPopover(); // kill the "more" popover if displayed
 
 		// is the event limit a constant level number?
 		if (eventLimit && typeof eventLimit === 'number') {
@@ -11194,7 +11194,7 @@ var ListView = fcViews.list = View.extend({
 			scrollerHeight = this.computeScrollerHeight(totalHeight);
 			this.scrollerEl.height(scrollerHeight);
 
-			this.restoreScroll();
+			//this.restoreScroll();
 		}
 	},
 
@@ -11232,10 +11232,10 @@ var ListView = fcViews.list = View.extend({
 
 	// Unrenders all event elements and clears internal segment data
 	destroyEvents: function() {
-		View.prototype.destroyEvents.call(this); // do this before dayGrid's segs have been cleared
+		//View.prototype.destroyEvents.call(this); // do this before dayGrid's segs have been cleared
 
-		this.recordScroll(); // removing events will reduce height and mess with the scroll, so record beforehand
-		this.dayGrid.destroyEvents();
+		//this.recordScroll(); // removing events will reduce height and mess with the scroll, so record beforehand
+		//this.dayGrid.destroyEvents();
 
 		// we DON'T need to call updateHeight() because:
 		// A) a renderEvents() call always happens after this, which will eventually call updateHeight()
