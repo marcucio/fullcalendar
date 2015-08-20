@@ -1,5 +1,5 @@
 /*!
- * FullCalendar v2.2.5
+ * FullCalendar v2.2.6
  * Docs & License: http://arshaw.com/fullcalendar/
  * (c) 2013 Adam Shaw
  */
@@ -128,7 +128,7 @@ var rtlDefaults = {
 
 ;;
 
-var fc = $.fullCalendar = { version: "2.2.5" };
+var fc = $.fullCalendar = { version: "2.2.6" };
 var fcViews = fc.views = {};
 
 
@@ -1979,6 +1979,7 @@ var DragListener = Class.extend({
 
 	isListening: false,
 	isDragging: false,
+	isScrolling: false,
 
 	// the cell the mouse was over when listening started
 	origCell: null,
@@ -2036,7 +2037,7 @@ var DragListener = Class.extend({
 		var cell;
 
 		if (!this.isListening) {
-
+			this.isScrolling = false;
 			// grab scroll container and attach handler
 			if (ev && this.options.scroll) {
 				scrollParent = getScrollParent($(ev.target));
@@ -2124,7 +2125,7 @@ var DragListener = Class.extend({
 	// Called while the mouse is being moved and when we know a legitimate drag is taking place
 	drag: function(ev) {
 		var cell;
-
+		this.isScrolling = true;
 		if (this.isDragging) {
 			cell = this.getCell(ev);
 
@@ -2366,6 +2367,7 @@ var DragListener = Class.extend({
 
 	// Get called when the scrollEl is scrolled (NOTE: this is delayed via debounce)
 	scrollHandler: function() {
+		this.isScrolling = true;
 		// recompute all coordinates, but *only* if this is *not* part of our scrolling animation
 		if (!this.scrollIntervalId) {
 			this.computeCoords();
@@ -2985,7 +2987,9 @@ var Grid = fc.Grid = RowRenderer.extend({
 			listenStop: function(ev) {
 				if (dayClickCell) {
 					ev.preventDefault(); //fixes double click on Android
-					view.trigger('dayClick', _this.getCellDayEl(dayClickCell), dayClickCell.start, ev);
+					if (!dragListener.isScrolling) {
+						view.trigger('dayClick', _this.getCellDayEl(dayClickCell), dayClickCell.start, ev);
+					}
 				}
 				if (selectionRange) {
 					// the selection will already have been rendered. just report it
@@ -4749,10 +4753,15 @@ DayGrid.mixin({
 			timeHtml = '<span class="fc-time">' + htmlEscape(this.getEventTimeText(event)) + '</span>';
 		}
 
-		titleHtml =
-			'<span class="fc-title">' +
-				(htmlEscape(event.title || '') || '&nbsp;') + // we always want one line of height
-			'</span>';
+		if (event.customTitleHtml) {
+			titleHtml = event.customTitleHtml;
+		}
+		else {
+			titleHtml =
+				'<span class="fc-title">' +
+					(htmlEscape(event.title || '') || '&nbsp;') + // we always want one line of height
+				'</span>';
+		}
 		
 		return '<a class="' + classes.join(' ') + '"' +
 				(event.url ?
